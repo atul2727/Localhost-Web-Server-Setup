@@ -1,0 +1,3 @@
+REQUIRED_TOOLS="apache2 zenity"
+
+PACKAGE_MANAGER="apt-get"
