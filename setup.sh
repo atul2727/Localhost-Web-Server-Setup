@@ -18,7 +18,7 @@ while true; do
     choice=$(zenity --list --title="Localhost Web Server Setup" --column="Option" --column="Description" \
         1 "Install Apache2 Web Server" \
         2 "Start Apache2 now" \
-        3 "Deploy Homepage Project (New Port)" \
+        3 "Deploy Single HTML File (New Port)" \
         4 "Show Deployed Ports" \
         5 "Delete Deployment by Port" \
         6 "Exit" --width=500 --height=450)
@@ -33,12 +33,12 @@ while true; do
             ;;
 
         3)
-            homepage=$(zenity --file-selection --title="Select homepage HTML file to deploy")
-            if [[ -f "$homepage" ]]; then
+            file_to_deploy=$(zenity --file-selection --title="Select HTML file to deploy")
+            if [[ -f "$file_to_deploy" ]]; then
                 timestamp=$(date +%F_%H-%M-%S)
                 deploy_dir="/var/www/html/deploy_$timestamp"
                 sudo mkdir "$deploy_dir"
-                sudo cp "$homepage" "$deploy_dir/index.html"
+                sudo cp "$file_to_deploy" "$deploy_dir/index.html"
                 sudo chmod -R 755 "$deploy_dir"
 
                 port=$(get_next_port)
@@ -75,59 +75,41 @@ EOF
             ;;
 
         4)
-                if [[ ! -s "$DEPLOYED_LIST" ]]; then
-                        zenity --info --text="No ports active."
-                else
-                        deployed_ports=$(awk -F',' '{print $2}' "$DEPLOYED_LIST" | paste -sd'\n')
-                        if [[ -z "$deployed_ports" ]]; then
-                                zenity --info --text="No ports active."
-                        else
-                                zenity --info --title="Deployed Ports" --text="$deployed_ports"
-                        fi
-                fi
-                ;;
+            if [[ ! -s "$DEPLOYED_LIST" ]]; then
+                zenity --info --text="No deployments found!"
+            else
+                deployed_ports=$(awk -F',' '{print $2}' "$DEPLOYED_LIST" | paste -sd'\n')
+                zenity --info --title="Deployed Ports" --text="$deployed_ports"
+            fi
+            ;;
 
         5)
             if [[ ! -s "$DEPLOYED_LIST" ]]; then
                 zenity --info --text="No deployments to delete!"
             else
-                deployed_ports=$(awk -F',' '{print $2}' "$DEPLOYED_LIST")
-                if [[ -z "$deployed_ports" ]]; then
-                    zenity --info --text="No deployments to delete!"
-                else
-                    selected_port=$(echo "$deployed_ports" | zenity --list --title="Select Port to Delete" --column="Port" --width=200 --height=300)
+                selected_port=$(awk -F',' '{print $2}' "$DEPLOYED_LIST" | zenity --list --title="Select Port to Delete" --column="Port" --width=200 --height=300)
 
-                    if [[ -n "$selected_port" ]]; then
-                        # Find matching deployment line
-                        line=$(grep ",$selected_port\$" "$DEPLOYED_LIST")
-                        deploy_dir=$(echo $line | cut -d',' -f1)
-                        conf_file="$APACHE_CONF_DIR/$(basename $deploy_dir).conf"
+                if [[ -n "$selected_port" ]]; then
+                    line=$(grep ",$selected_port\$" "$DEPLOYED_LIST")
+                    deploy_dir=$(echo $line | cut -d',' -f1)
+                    conf_file="$APACHE_CONF_DIR/$(basename $deploy_dir).conf"
 
-                        # Remove deployment folder
-                        sudo rm -rf "$deploy_dir"
+                    sudo rm -rf "$deploy_dir"
+                    sudo a2dissite "$(basename $conf_file)"
+                    sudo rm -f "$conf_file"
+                    sudo sed -i "/Listen $selected_port/d" $APACHE_PORTS_CONF
 
-                        # Remove conf file
-                        sudo a2dissite "$(basename $conf_file)"
-                        sudo rm -f "$conf_file"
+                    grep -vF -- "$line" "$DEPLOYED_LIST" > tmpfile && mv tmpfile "$DEPLOYED_LIST"
 
-                        # Remove Listen port line
-                        sudo sed -i "/Listen $selected_port/d" $APACHE_PORTS_CONF
+                    sudo systemctl reload apache2
 
-                        # Remove from deployed_list.txt
-                        grep -vF -- "$line" "$DEPLOYED_LIST" > tmpfile && mv tmpfile "$DEPLOYED_LIST"
-
-                        # Reload Apache
-                        sudo systemctl reload apache2
-
-                        zenity --info --text="Deleted deployment on port $selected_port"
-                    fi
+                    zenity --info --text="Deleted deployment on port $selected_port"
                 fi
             fi
             ;;
 
-                6)
-                    break
-                    ;;
-            esac
-        done
-
+        6)
+            break
+            ;;
+    esac
+done
